@@ -1,55 +1,81 @@
 import streamlit as st
-import streamlit.components.v1 as components
+import random  
 from srs_logic import fsi_coach
 
-st.set_page_config(page_title="免費版 FSI 教練", page_icon="🎤")
+st.set_page_config(page_title="FSI 西語教練", page_icon="🎤")
 
-st.title("🎤 FSI 高強度教練 ")
-st.caption("使用瀏覽器內建語音引擎，不消耗任何 API 點數")
+# 初始化會話狀態 [cite: 136]
+if "active" not in st.session_state:
+    st.session_state.active = False
 
-# 獲取當前練習語塊
-current_data = fsi_coach.get_next_chunk()
-phrase = current_data["phrase"]
-ipa = current_data["ipa"]
+st.title("🎤 FSI 高強度西語教練")
+st.caption("Substitution Drill：請在教練說完提示詞後 3 秒內完成句子")
 
-# 介面顯示區
-st.info(f"### 當前句型：{phrase}")
-st.write(f"**音標：** {ipa}")
+# 啟動與結束按鈕控制 [cite: 136]
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🚀 開始練習", use_container_width=True):
+        st.session_state.active = True
+        st.rerun()
+with col2:
+    if st.button("⏹️ 結束/重置", use_container_width=True, type="primary"):
+        st.session_state.active = False
+        st.rerun()
 
 st.markdown("---")
-st.subheader("點擊按鈕開始 3 秒挑戰")
 
-speech_js = f"""
-<script>
-    const msg = new SpeechSynthesisUtterance("{phrase}");
-    const recognition = new (window.webkitSpeechRecognition || window.SpeechRecognition)();
-    recognition.lang = 'en-US';
+if st.session_state.active:
+    # 2. 獲取資料並隨機挑選提示詞 [cite: 305, 312]
+    current_data = fsi_coach.get_next_chunk()
+    phrase = current_data["phrase"]
+    ipa = current_data["ipa"]
     
-    function startDrill() {{
-        window.speechSynthesis.speak(msg);
+    # 從資料庫的 prompts 清單中隨機選一個
+    current_prompt = random.choice(current_data["prompts"]) 
+
+    st.info(f"### 核心句型：{phrase}")
+    st.write(f"**音標 (IPA)：** {ipa}")
+    st.warning(f"**🔥 請替換此詞彙：{current_prompt}**") # 在畫面上顯示提示詞
+
+    # 3. 更新 JavaScript：教練先唸提示詞，再聽妳回答 
+    speech_js = f"""
+    <script>
+        const coachMsg = new SpeechSynthesisUtterance("{current_prompt}"); 
+        coachMsg.lang = 'es-ES';
         
-        msg.onend = () => {{
-            recognition.start();
-            let timer = setTimeout(() => {{
-                recognition.stop();
-                alert("太慢了！加快速度！");
-            }}, 3000);
+        const recognition = new (window.webkitSpeechRecognition || window.SpeechRecognition)();
+        recognition.lang = 'es-ES';
+        
+        function startDrill() {{
+            // 第一步：教練唸出提示詞 (例如: "abre hoy")
+            window.speechSynthesis.speak(coachMsg);
+            
+            coachMsg.onend = () => {{
+                // 第二步：唸完後立刻啟動辨識並開始 3 秒倒數 [cite: 11, 312]
+                recognition.start();
+                
+                let timer = setTimeout(() => {{
+                    recognition.stop();
+                    alert("¡Demasiado lento! (太慢了！)");
+                }}, 3000);
 
-            recognition.onresult = (event) => {{
-                clearTimeout(timer);
-                const result = event.results[0][0].transcript;
-                alert("你說了: " + result);
+                recognition.onresult = (event) => {{
+                    clearTimeout(timer);
+                    const result = event.results[0][0].transcript;
+                    alert("妳完成了句子：{phrase} " + result);
+                }};
             }};
-        }};
-    }}
-</script>
-<button onclick="startDrill()" style="padding: 15px 30px; font-size: 20px; cursor: pointer;">
-    開始訓練 (Substitution Drill)
-</button>
-"""
-
-# 使用 iframe 方式嵌入語音引擎
-st.iframe(f"data:text/html;charset=utf-8,{speech_js}", height=200)
-
-st.sidebar.write("### 練習狀態")
-st.sidebar.write(f"目前箱子：箱子 1")
+        }}
+    </script>
+    <button onclick="startDrill()" style="padding: 20px; font-size: 20px; border-radius: 10px; cursor: pointer; width: 100%; background-color: #f0f2f6;">
+        🎤 點擊聽提示並挑戰 (3 秒內回答)
+    </button>
+    """
+    
+    st.iframe(f"data:text/html;charset=utf-8,{speech_js}", height=150)
+    
+    st.sidebar.markdown("### 練習狀態")
+    st.sidebar.text("影子練習輔導：")
+    st.sidebar.info(f"節奏：{phrase[:10]}...")
+else:
+    st.write("教練待命中... 請點擊上方「開始練習」按鈕。")
